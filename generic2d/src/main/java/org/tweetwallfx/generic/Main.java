@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2014-2015 TweetWallFX
+ * Copyright 2014-2017 TweetWallFX
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,8 +23,7 @@
  */
 package org.tweetwallfx.generic;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Optional;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.scene.input.KeyEvent;
@@ -38,45 +37,39 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.LoggerConfig;
 import org.tweetwallfx.config.Configuration;
-import org.tweetwallfx.tweet.StopList;
+import org.tweetwallfx.config.TweetwallSettings;
 import org.tweetwallfx.tweet.StringPropertyAppender;
 import org.tweetwallfx.tweet.api.Tweeter;
 import org.tweetwallfx.twod.TagTweets;
 
-/**
- * @author martin
- */
 public class Main extends Application {
 
     private static final String STARTUP = "org.tweetwallfx.startup";
-    Logger startupLogger = LogManager.getLogger(STARTUP);
-    
-    private static final String SEARCH_TEXT = Configuration.getInstance().getConfig("tweetwall.twitter.query");
-    private static final String TITLE = Configuration.getInstance().getConfig("tweetwall.title");
-    private static final String STYLESHEET = Configuration.getInstance().getConfig("tweetwall.stylesheet", null);
+    private static final Logger STARTUP_LOGGER = LogManager.getLogger(STARTUP);
     private TagTweets tweetsTask;
-  
+
     @Override
     public void start(Stage primaryStage) {
         BorderPane borderPane = new BorderPane();
         Scene scene = new Scene(borderPane, 800, 600);
         borderPane.getStyleClass().add("splash");
-        
-        if (null != STYLESHEET) {
-            scene.getStylesheets().add(ClassLoader.getSystemClassLoader().getResource(STYLESHEET).toExternalForm());
-        }        
-        //extract Hashtags from complex query and add to StopList
-        final Matcher m = Pattern.compile("#[\\S]+").matcher(SEARCH_TEXT);
-        while (m.find()) {
-            StopList.add(m.group(0));
-        }
-        
+
+        final TweetwallSettings tweetwallSettings
+                = Configuration.getInstance().getConfigTyped(TweetwallSettings.CONFIG_KEY, TweetwallSettings.class);
+
+        Optional.ofNullable(tweetwallSettings.getStylesheetResource())
+                .map(ClassLoader.getSystemClassLoader()::getResource)
+                .map(java.net.URL::toExternalForm)
+                .ifPresent(scene.getStylesheets()::add);
+        Optional.ofNullable(tweetwallSettings.getStylesheetFile())
+                .ifPresent(scene.getStylesheets()::add);
+
         StringPropertyAppender spa = new StringPropertyAppender();
-        
+
         LoggerContext context = LoggerContext.getContext(false);
         org.apache.logging.log4j.core.config.Configuration config = context.getConfiguration();
         spa.start();
-        LoggerConfig slc = config.getLoggerConfig(startupLogger.getName());
+        LoggerConfig slc = config.getLoggerConfig(STARTUP_LOGGER.getName());
         slc.setLevel(Level.TRACE);
         slc.addAppender(spa, Level.TRACE, null);
 
@@ -84,27 +77,24 @@ public class Main extends Application {
         Text statusLineText = new Text();
         statusLineText.getStyleClass().addAll("statusline");
         statusLineText.textProperty().bind(spa.stringProperty());
-        statusLineHost.getChildren().add(statusLineText);       
+        statusLineHost.getChildren().add(statusLineText);
 
-        if (!SEARCH_TEXT.isEmpty()) {
-            tweetsTask = new TagTweets(SEARCH_TEXT, borderPane);
-            tweetsTask.start();
-        }
-        
+        tweetsTask = new TagTweets(borderPane);
+        tweetsTask.start();
+
         scene.setOnKeyTyped((KeyEvent event) -> {
             if (event.isMetaDown() && event.getCharacter().equals("d")) {
                 if (null == statusLineHost.getParent()) {
                     borderPane.setBottom(statusLineHost);
-                }
-                else {
+                } else {
                     borderPane.getChildren().remove(statusLineHost);
                 }
             }
         });
 
-        primaryStage.setTitle(TITLE);
+        primaryStage.setTitle(tweetwallSettings.getTitle());
         primaryStage.setScene(scene);
-        
+
         primaryStage.show();
         primaryStage.setFullScreen(true);
     }
